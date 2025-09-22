@@ -1,17 +1,28 @@
 server {
-                listen 443 ssl http2;
-                server_name foreman.epiqcorp.com;
+    listen 443 ssl http2;
+    server_name foreman.epiqcorp.com;
 
-                ssl_certificate /newcerts/foreman.chain;
-                ssl_certificate_key /newcerts/foreman.key;
+    # SSL certificate
+    ssl_certificate /newcerts/foreman.chain;
+    ssl_certificate_key /newcerts/foreman.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
 
-                        ssl_protocols TLSv1.2 TLSv1.3;
+    # Recommended SSL settings
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
 
-                location / {
-                        proxy_pass https://p054lnxfore01.epiqcorp.com:443;
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                        proxy_set_header X-Forwarded-Proto https;
-                        proxy_ssl_verify off;
-                }
-        }
+    # Proxy all requests to the backend Foreman server over HTTP
+    location / {
+        proxy_pass http://p054lnxfore01:80;          # Apache backend HTTP
+        proxy_set_header Host $host;                # Forward original host
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;  # Preserve original scheme
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+
+        # Optional: WebSocket support (if Foreman uses it)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
