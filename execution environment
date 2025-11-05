@@ -1,11 +1,3 @@
-bindep.txt :
-
-
-curl [platform:deb]
-git [platform:deb]
-
-
-
 execution-environment.yml
 
 version: 3
@@ -13,19 +5,39 @@ version: 3
 dependencies:
   python: requirements.txt
   system: bindep.txt
+  galaxy: requirements.yml
 
 additional_build_steps:
   prepend_final:
-    - COPY collections /usr/share/ansible/collections
+    # Copy your helper scripts into the EE
+    - COPY scripts /opt/awx/scripts
+    - RUN chmod +x /opt/awx/scripts/*.sh || true
+    # Optional: set path
+    - ENV PATH="/opt/awx/scripts:${PATH}"
+
+
+requirements.yml
+
+collections:
+  - name: community.general
+    version: "7.5.3"
+  - name: community.vmware
+    version: "3.11.0"
 
 
 requirements.txt
 
 ansible-core==2.15.13
+pyvmomi==8.1.0
+pyvim==3.0.3
+cryptography==41.0.0
+requests>=2.31.0
 
-requirements.yml
 
- requirements.yml
-collections:
-  - name: community.general
-    version: "7.5.3"
+bindep.txt
+
+# Packages to install inside the EE (Debian-based)
+curl [platform:deb]
+git [platform:deb]
+ca-certificates [platform:deb]
+build-essential [platform:deb]
