@@ -1,119 +1,43 @@
-root@p054lnxawx01:/envlab/02# cat Dockerfile
-FROM quay.io/ansible/awx-ee:latest
+1️⃣ requirements.txt
 
-# Ensure root user for installation steps
-USER root
+Add these lines to your existing list:
 
-# Enable CRB repository to access python3-wheel
-RUN dnf config-manager --set-enabled crb
-
-# Install Ansible Core 2.14.18
-RUN pip install "ansible-core==2.14.18"
-
-# Create config directory to avoid ansible-lint permission issues
-RUN mkdir -p /root/.config && touch /root/.config/ansible-lint.yml
-
-# Copy and install local collections
-COPY collection /tmp/collection
-RUN mkdir -p /usr/share/ansible/collections
-RUN for coll in /tmp/collection/*.tar.gz; do \
-      echo "Installing $coll"; \
-      ansible-galaxy collection install "$coll" --collections-path /usr/share/ansible/collections || exit 1; \
-    done
-
-# Copy and install Python dependencies
-COPY requirements.txt requirements.txt
-RUN pip install -r requirements.txt
-
-# Copy and install system dependencies
-COPY bindep.txt bindep.txt
-RUN dnf install -y --allowerasing $(grep -v python3-wheel bindep.txt) && \
-    dnf install -y --allowerasing python3-wheel
+pyvmomi==8.1.0
+pyvim==3.0.3
+cryptography==41.0.0  # optional bump, if compatible
+requests>=2.31.0
 
 
-root@p054lnxawx01:/envlab/02# cat awx.yml
-apiVersion: awx.ansible.com/v1beta1
-kind: AWX
-metadata:
-  name: awx
-spec:
-  ee_images:
-    - name: awx-ee-epiq-dzdo
-      image: localhost:32000/awx-ee-epiq-dzdo:latest
-  control_plane_ee_image: localhost:32000/awx-ee-epiq-dzdo:latest
+That gives you all the VMware API bindings and encryption support for your cache script.
 
-root@p054lnxawx01:/envlab/02# cat bindep.txt
-python3-pexpect
-python3-setuptools
-python3-pip
-python3-wheel
-python3-cryptography
-python3-passlib
-libselinux-python3
-git
-sshpass
-rsync
-curl
-unzip
-tar
-gcc
-python3-devel
-libffi-devel
-openssl-devel
-krb5-devel
-libxml2-devel
-libxslt-devel
-redhat-rpm-config
-make
-which
-sudo
+If you prefer, you can keep cryptography pinned at your distro version — it’s already in bindep, so pip will skip it if already satisfied.
 
-root@p054lnxawx01:/envlab/02# cat execution-environment.yml
-version: 1
+2️⃣ Optionally add community.vmware to requirements.yml
 
-dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-  system: bindep.txt
+That’s not required for your Python script, but it’s useful if you later want to automate snapshot verification or vCenter queries with native Ansible modules.
 
-root@p054lnxawx01:/envlab/02# cat requirements.txt
-pexpect
-ansible-runner
-selinux
-passlib
-cryptography
-jmespath
-netaddr
-requests
-PyYAML
-paramiko
-packaging
-distro
-six
-
-root@p054lnxawx01:/envlab/02# cat requirements.yml
 collections:
-- name: ansible-posix-1.5.4.tar.gz
-  version: 1.5.4
+  - name: ansible-posix-1.5.4.tar.gz
+    version: 1.5.4
+  - name: community.vmware
+    version: "3.11.0"
+🧱 Build Commands (same as you already use)
+
+You can rebuild the EE exactly the same way:
+
+ansible-builder build -t awx-ee-epiq-dzdo:latest --container-runtime podman
+podman tag awx-ee-epiq-dzdo:latest localhost:32000/awx-ee-epiq-dzdo:latest
+podman push localhost:32000/awx-ee-epiq-dzdo:latest
 
 
+Once it’s pushed, AWX will automatically start using the new version if the image name is the same.
 
-and i found my history how i made it
+🧠 Why This Is Ideal
 
-  728  ansible-builder build -t awx-ee-dzdo:latest --container-runtime podman
-  732  ansible-builder build -t awx-ee-dzdo:latest --container-runtime podman
-  735  ansible-builder build -t awx-ee-epiq--dzdo:latest --container-runtime podman
-  742  ansible-builder build -t awx-ee-epiq-dzdo:latest --container-runtime podman
-  746  ansible-builder build -t awx-ee-epiq-dzdo:latest --container-runtime podman
-  753  podman build -t awx-ee-epiq-dzdo:latest .
-  756  podman build -t awx-ee-epiq-dzdo:latest .
-  759  podman build -t awx-ee-epiq-dzdo:latest .
-  767  podman build -t awx-ee-epiq-dzdo:latest .
-  770  podman build -t awx-ee-epiq-dzdo:latest .
-  773  podman build -t awx-ee-epiq-dzdo:latest .
-  780  podman build -t awx-ee-epiq-dzdo:latest .
-  781  podman tag awx-ee-epiq-dzdo:latest localhost:32000/awx-ee-epiq-dzdo:latest
-  782  podman push localhost:32000/awx-ee-epiq-dzdo:latest
+You already have every system dependency to build PyVmomi (OpenSSL, libffi, headers).
 
+Using CRB ensures access to newer Python packages like wheel.
 
+Using pip install -r requirements.txt means Python dependencies are layered cleanly.
 
+You can continue to use your private registry and AWX operator (awx.yml) unchanged.
