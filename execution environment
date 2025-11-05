@@ -1,0 +1,31 @@
+bindep.txt :
+
+
+curl [platform:deb]
+git [platform:deb]
+
+
+
+execution-environment.yml
+
+version: 3
+
+dependencies:
+  python: requirements.txt
+  system: bindep.txt
+
+additional_build_steps:
+  prepend_final:
+    - COPY collections /usr/share/ansible/collections
+
+
+requirements.txt
+
+ansible-core==2.15.13
+
+requirements.yml
+
+ requirements.yml
+collections:
+  - name: community.general
+    version: "7.5.3"
