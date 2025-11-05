@@ -1,0 +1,227 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: awx-awx-configmap
+  namespace: awx
+data:
+  settings: |
+    import os
+    import socket
+    from django_auth_ldap.config import *
+
+    def get_secret():
+        if os.path.exists("/etc/tower/SECRET_KEY"):
+            return open('/etc/tower/SECRET_KEY', 'rb').read().strip()
+
+    ADMINS = ()
+    STATIC_ROOT = '/var/lib/awx/public/static'
+    STATIC_URL = '/static/'
+    PROJECTS_ROOT = '/var/lib/awx/projects'
+    JOBOUTPUT_ROOT = '/var/lib/awx/job_status'
+
+    IS_K8S = True
+    SECRET_KEY = get_secret()
+
+    # Hosts & CSRF
+    ALLOWED_HOSTS = ['lnxawx.amer.epiqcorp.com', '127.0.0.1', 'localhost', socket.gethostname()]
+    CSRF_TRUSTED_ORIGINS = ['https://lnxawx.amer.epiqcorp.com']
+    USE_X_FORWARDED_HOST = True
+    USE_X_FORWARDED_PORT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
+
+    INTERNAL_API_URL = 'http://127.0.0.1:8052'
+
+    AWX_PROOT_ENABLED = False
+    AWX_AUTO_DEPROVISION_INSTANCES = True
+    CLUSTER_HOST_ID = socket.gethostname()
+    SYSTEM_UUID = os.environ.get('MY_POD_UID', '00000000-0000-0000-0000-000000000000')
+
+    SERVER_EMAIL = 'root@localhost'
+    DEFAULT_FROM_EMAIL = 'webmaster@localhost'
+    EMAIL_SUBJECT_PREFIX = '[AWX] '
+    EMAIL_HOST = 'localhost'
+    EMAIL_PORT = 25
+    EMAIL_HOST_USER = ''
+    EMAIL_HOST_PASSWORD = ''
+    EMAIL_USE_TLS = False
+
+    BROADCAST_WEBSOCKET_PORT = 8052
+    BROADCAST_WEBSOCKET_PROTOCOL = 'https'
+    RECEPTOR_LOG_LEVEL = 'info'
+
+    SOCIAL_AUTH_USER_FIELDS = ['username', 'email', 'first_name', 'last_name']
+    SOCIAL_AUTH_AUTO_CREATE_USERS = True
+    SOCIAL_AUTH_AUTO_UPDATE_USERS = True
+
+    LOGGING['handlers']['console']['level'] = DEBUG
+
+  nginx_conf: |
+    worker_processes  1;
+    worker_cpu_affinity  auto;
+    pid        /tmp/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        server_tokens off;
+        client_max_body_size 5M;
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /dev/stdout main;
+
+        map $http_upgrade $connection_upgrade {
+            default upgrade;
+            ''      close;
+        }
+
+        sendfile on;
+
+        upstream uwsgi {
+            server 127.0.0.1:8050;
+        }
+
+        upstream daphne {
+            server 127.0.0.1:8051;
+        }
+
+        server {
+            listen 8052 default_server;
+            listen [::]:8052 default_server;
+
+            server_name lnxawx.amer.epiqcorp.com;
+            keepalive_timeout 65;
+
+            add_header Strict-Transport-Security "max-age=15768000; includeSubDomains" always;
+            add_header X-Frame-Options "DENY";
+            add_header X-Content-Type-Options nosniff;
+
+            location /nginx_status {
+                stub_status on;
+                access_log off;
+                allow 127.0.0.1;
+                deny all;
+            }
+
+            location /static {
+                alias /var/lib/awx/public/static/;
+            }
+
+            location /locales {
+                alias /var/lib/awx/public/static/awx/locales;
+            }
+
+            location /favicon.ico {
+                alias /var/lib/awx/public/static/media/favicon.ico;
+            }
+
+            location ~ ^(/websocket/|/api/websocket/) {
+                proxy_pass http://daphne;
+                proxy_http_version 1.1;
+                proxy_buffering off;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Port 443;
+                proxy_set_header X-Forwarded-Host $host;
+                proxy_set_header Host $host;
+                proxy_redirect off;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection $connection_upgrade;
+            }
+
+            location / {
+                uwsgi_read_timeout 120s;
+                uwsgi_pass uwsgi;
+                include /etc/nginx/uwsgi_params;
+                include /etc/nginx/conf.d/*.conf;
+
+                uwsgi_param Host $host;
+                uwsgi_param X-Forwarded-Proto $scheme;
+                uwsgi_param X-Forwarded-Port 443;
+                uwsgi_param X-Forwarded-Host $host;
+
+                add_header Strict-Transport-Security "max-age=15768000; includeSubDomains" always;
+                add_header X-Frame-Options "DENY";
+                add_header X-Content-Type-Options nosniff;
+                add_header Cache-Control "no-cache, no-store, must-revalidate";
+                add_header Expires "0";
+                add_header Pragma "no-cache";
+            }
+        }
+    }
+
+  uwsgi_conf: |
+    [uwsgi]
+    socket = 127.0.0.1:8050
+    processes = 5
+    listen = 128
+    master = true
+    vacuum = true
+    no-orphans = true
+    lazy-apps = true
+    manage-script-name = true
+    master-fifo = /var/lib/awx/awxfifo
+    max-requests = 1000
+    buffer-size = 32768
+
+    if-env = UWSGI_MOUNT_PATH
+    mount = %(_)=awx.wsgi:application
+    endif =
+
+    if-not-env = UWSGI_MOUNT_PATH
+    mount = /=awx.wsgi:application
+    endif
+
+  receptor_conf: |
+    ---
+    - log-level: info
+    - local-only: null
+    - node:
+       firewallrules:
+        - action: reject
+          tonode: HOSTNAME
+          toservice: control
+    - control-service:
+        service: control
+        filename: /var/run/receptor/receptor.sock
+        permissions: '0660'
+    - work-command:
+        worktype: local
+        command: ansible-runner
+        params: worker
+        allowruntimeparams: true
+    - work-kubernetes:
+        worktype: kubernetes-runtime-auth
+        authmethod: runtime
+        allowruntimeauth: true
+        allowruntimepod: true
+        allowruntimeparams: true
+    - work-kubernetes:
+        worktype: kubernetes-incluster-auth
+        authmethod: incluster
+        allowruntimeauth: true
+        allowruntimepod: true
+        allowruntimeparams: true
+    - tls-client:
+        cert: /etc/receptor/tls/receptor.crt
+        key: /etc/receptor/tls/receptor.key
+        name: tlsclient
+        rootcas: /etc/receptor/tls/ca/mesh-CA.crt
+        mintls13: false
+    - work-signing:
+        privatekey: /etc/receptor/work_private_key.pem
+        tokenexpiration: 1m
+
+  redis_conf: |
+    unixsocket /var/run/redis/redis.sock
+    unixsocketperm 777
+    port 0
+    bind 127.0.0.1
