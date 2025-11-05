@@ -1,0 +1,16 @@
+[Unit]
+Description=BIND Prometheus Exporter
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/bind_exporter/bind_exporter.py
+Restart=always
+RestartSec=5
+User=root
+Group=root
+WorkingDirectory=/opt/bind_exporter
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
