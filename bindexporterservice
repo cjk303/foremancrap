@@ -5,12 +5,41 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 /opt/bind_exporter/bind_exporter.py
-Restart=always
-RestartSec=5
+WorkingDirectory=/opt/bind_exporter
 User=root
 Group=root
-WorkingDirectory=/opt/bind_exporter
 Environment=PYTHONUNBUFFERED=1
+
+# Automatically restart on failure
+Restart=always
+RestartSec=5
+
+# -------- Safety Hardening --------
+
+# Limit open files (prevents fd leak crash)
+LimitNOFILE=4096
+
+# Limit memory usage (prevents memory leak crash)
+MemoryMax=200M
+
+# CPU throttling (optional)
+CPUQuota=50%
+
+# Kill exporter if it hangs for too long
+TimeoutStopSec=10
+KillMode=process
+
+# Add system protection
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+
+# Optional: Bind exporter only to localhost to avoid external connections
+# You must also edit your Python file to start server like this:
+# start_http_server(9119, addr="127.0.0.1")
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1
 
 [Install]
 WantedBy=multi-user.target
